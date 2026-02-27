@@ -28,6 +28,77 @@ static const uint16_t BADGE_W = 128;
 static const uint16_t BADGE_H = 296;
 static const uint16_t FB_BYTES = (BADGE_W * BADGE_H) / 8; // 4736
 
+
+
+// -------- Firmware / status --------
+static const char* FW_VERSION = "0.1";
+
+// -------- Battery sense (E290) --------
+// VBAT_READ is GPIO7 (ADC1_CH6). Divider is 390k (top) / 100k (bottom) -> multiplier 4.9.
+static const int   BAT_ADC_PIN = 7;
+
+// Some Heltec designs gate the VBAT divider with ADC_Ctrl to reduce drain.
+// If your readings are 0 or nonsense, set USE_ADC_CTRL true and set ADC_CTRL_PIN.
+// If readings are fine without it, leave USE_ADC_CTRL false.
+static const bool  USE_ADC_CTRL = true;   // try false first; flip to true if needed
+static const int   ADC_CTRL_PIN = 46;      // best-guess; only used if USE_ADC_CTRL = true
+
+// Divider multiplier: Vbat = Vadc * 4.9 (390k+100k)/100k
+static const float BAT_MULT     = 4.9f;
+
+
+static uint8_t lipoPercentFromVolts(float v) {
+  // Rough LiPo OCV curve (single cell) at room temp.
+  // Note: under load, voltage sags; after resting, it rebounds.
+  // Clamp and then interpolate between points.
+
+  if (v <= 3.30f) return 0;
+  if (v >= 4.20f) return 100;
+
+  struct Pt { float v; uint8_t p; };
+  static const Pt curve[] = {
+    {4.20f,100}, {4.15f, 95}, {4.11f, 90}, {4.08f, 85}, {4.02f, 75},
+    {3.98f, 70}, {3.95f, 65}, {3.91f, 55}, {3.87f, 45}, {3.85f, 40},
+    {3.84f, 35}, {3.82f, 30}, {3.80f, 25}, {3.79f, 20}, {3.77f, 15},
+    {3.75f, 10}, {3.73f,  7}, {3.71f,  5}, {3.69f,  3}, {3.61f,  1},
+    {3.50f,  0}, {3.30f,  0}
+  };
+
+  // Find the two points that bracket v, then linear-interpolate between their %
+  for (size_t i = 0; i + 1 < sizeof(curve)/sizeof(curve[0]); i++) {
+    if (v <= curve[i].v && v >= curve[i + 1].v) {
+      float v1 = curve[i].v, v2 = curve[i + 1].v;
+      float p1 = (float)curve[i].p, p2 = (float)curve[i + 1].p;
+
+      float t = (v - v2) / (v1 - v2);  // 0..1
+      float p = p2 + t * (p1 - p2);
+      if (p < 0) p = 0;
+      if (p > 100) p = 100;
+      return (uint8_t)(p + 0.5f);
+    }
+  }
+
+  // Fallback (shouldn’t happen due to clamps)
+  return 0;
+}
+
+
+// Double-tap timing
+static const uint32_t DOUBLE_TAP_WINDOW_MS = 450;
+static const uint32_t DEBOUNCE_MS          = 30;
+
+// After last double-tap, keep device awake for 5 minutes then sleep
+static const uint32_t INTERACT_WINDOW_MS   = 5UL * 60UL * 1000UL;
+
+// -------- Retained display buffers (RTC memory) --------
+RTC_DATA_ATTR static uint8_t  g_savedFb[FB_BYTES];
+RTC_DATA_ATTR static bool     g_hasSavedFb = false;
+
+enum UiMode : uint8_t { UI_STATUS = 0, UI_LIVE = 1, UI_SAVED = 2, UI_BOOT = 3 };
+RTC_DATA_ATTR static UiMode   g_uiMode = UI_LIVE;
+
+
+
 // BLE UUIDs
 static const char* BLE_DEVICE_NAME = "E-Badge";
 static const char* SERVICE_UUID    = "6a3a7b52-2d6d-4a2b-8d1a-0d4d6c3a1c10";
@@ -367,6 +438,85 @@ display.drawBitmap(0, 0, badgey_boot_logo, LOGO_W, LOGO_H, BLACK);
 display.update();
 }
 
+
+static float readBatteryVolts() {
+  if (BAT_ADC_PIN < 0) return -1.0f;
+
+  if (USE_ADC_CTRL) {
+    pinMode(ADC_CTRL_PIN, OUTPUT);
+    digitalWrite(ADC_CTRL_PIN, HIGH);
+    delay(2);
+  }
+
+  // ESP32-S3 ADC: use 11dB attenuation so higher voltages on the ADC pin are measurable
+  analogSetPinAttenuation(BAT_ADC_PIN, ADC_11db);
+  delay(2);
+
+  // Average a few reads to reduce noise
+  const int samples = 16;
+  uint32_t accMv = 0;
+  for (int i = 0; i < samples; i++) {
+    accMv += (uint32_t)analogReadMilliVolts(BAT_ADC_PIN);
+    delay(2);
+  }
+  float mv = (float)accMv / (float)samples;
+
+  if (USE_ADC_CTRL) {
+    digitalWrite(ADC_CTRL_PIN, LOW);
+  }
+
+  float v_adc  = mv / 1000.0f;
+  float v_batt = v_adc * BAT_MULT;
+  return v_batt;
+}
+static void drawSavedFramebuffer();
+
+static void drawStatusScreen() {
+  display.fillScreen(WHITE);
+  display.setTextColor(BLACK);
+  display.setTextSize(1);
+
+  const float vb = readBatteryVolts();
+	uint8_t pct = (vb < 0.0f) ? 0 : lipoPercentFromVolts(vb);
+
+  display.setCursor(2, 8);
+  display.print("E-Badge Status");
+
+  display.setCursor(2, 28);
+  display.print("FW: ");
+  display.print(FW_VERSION);
+
+  display.setCursor(2, 44);
+  display.print("Uptime: ");
+  display.print((uint32_t)(millis() / 1000));
+  display.print("s");
+
+
+	display.setCursor(2, 60);
+display.print("Batt: ");
+if (vb < 0.0f) {
+  display.print("N/A");
+} else {
+  display.print(vb, 2);
+  display.print(" V (");
+  display.print(pct);
+  display.print("%)");
+}
+
+  display.setCursor(2, 76);
+  display.print("Saved FB: ");
+  display.print(g_hasSavedFb ? "yes" : "no");
+
+  display.setCursor(2, 92);
+  display.print("Mode: ");
+  display.print((int)g_uiMode);
+
+
+  display.update();
+}
+
+
+
 // -------- Display helpers --------
 static void drawCenteredText(const String& s, uint8_t textSize) {
   display.fillScreen(WHITE);
@@ -393,6 +543,22 @@ static void drawFramebufferToDisplay(const uint8_t* packed, uint16_t w, uint16_t
   display.update();
 }
 
+static void drawSavedFramebuffer() {
+  if (!g_hasSavedFb) {
+    display.fillScreen(WHITE);
+    display.setTextColor(BLACK);
+    display.setTextSize(1);
+    display.setCursor(2, 8);
+    display.print("No saved framebuffer");
+    display.setCursor(2, 28);
+    display.print("Send an image first.");
+    display.update();
+    return;
+  }
+
+  // Draw the retained framebuffer (saved across deep sleep)
+  drawFramebufferToDisplay(g_savedFb, BADGE_W, BADGE_H);
+}
 
 // -------- Power / sleep --------
 static void goToDeepSleep() {
@@ -681,8 +847,17 @@ if (wokeFromButton()) {
 
 void loop() {
   static uint32_t startMs = millis();
+  static uint32_t lastActivityMs = millis();   // resets on double-tap
   static uint32_t lastBlinkMs = 0;
   static bool ledOn = false;
+
+  // Button state for debounce + double-tap (active LOW)
+  static bool lastBtnRaw = true;
+  static bool btnStable = true;
+  static uint32_t lastDebounceMs = 0;
+
+  static bool waitingSecondTap = false;
+  static uint32_t firstTapMs = 0;
 
  static uint32_t lastLog = 0;
  if (millis() - lastLog > 2000) {
@@ -700,23 +875,91 @@ void loop() {
 
   pollSerialForLine();
 
+  // -------- Double-tap handler (rotate screens) --------
+  bool btnRaw = (digitalRead((int)WAKE_BTN) == HIGH); // HIGH = not pressed, LOW = pressed -> so btnRaw==false when pressed
+
+  if (btnRaw != lastBtnRaw) {
+    lastDebounceMs = now;
+    lastBtnRaw = btnRaw;
+  }
+
+  if ((now - lastDebounceMs) > DEBOUNCE_MS) {
+    if (btnStable != btnRaw) {
+      btnStable = btnRaw;
+
+      // We trigger on "press" (transition to LOW => btnStable becomes false)
+      if (btnStable == false) {
+        if (!waitingSecondTap) {
+          waitingSecondTap = true;
+          firstTapMs = now;
+        } else {
+          // Second tap
+          if (now - firstTapMs <= DOUBLE_TAP_WINDOW_MS) {
+            waitingSecondTap = false;
+
+            // Rotate mode: Status -> Live -> Saved -> Boot -> Status...
+            switch (g_uiMode) {
+              case UI_STATUS: g_uiMode = UI_LIVE;  break;
+              case UI_LIVE:   g_uiMode = UI_SAVED; break;
+              case UI_SAVED:  g_uiMode = UI_BOOT;  break;
+              case UI_BOOT:   g_uiMode = UI_STATUS;break;
+              default:        g_uiMode = UI_STATUS;break;
+            }
+
+            Serial.print("[ui] Double-tap, mode=");
+            Serial.println((int)g_uiMode);
+
+            if (g_uiMode == UI_STATUS) drawStatusScreen();
+            else if (g_uiMode == UI_LIVE) {
+              // Live means "whatever is currently on the panel".
+              // If we woke-from-button, we intentionally didn't redraw anything,
+              // so leaving it alone is correct here.
+              Serial.println("[ui] Live: leaving display as-is.");
+            }
+            else if (g_uiMode == UI_SAVED) drawSavedFramebuffer();
+            else if (g_uiMode == UI_BOOT) drawBootLogo();
+
+            lastActivityMs = now;
+          } else {
+            // Too slow, treat this as the new first tap
+            firstTapMs = now;
+          }
+        }
+      }
+    }
+  }
+
+  // If we never got a second tap in time, clear it
+  if (waitingSecondTap && (now - firstTapMs > DOUBLE_TAP_WINDOW_MS)) {
+    waitingSecondTap = false;
+  }
+
   // If update received, apply it and sleep
-  if (g_updateReady) {
+    if (g_updateReady) {
     Serial.println("[update] Applying update to display...");
     stopBLE();
 
     if (g_haveFramebuffer) {
+      // Save framebuffer for later rotation (retained across deep sleep)
+      memcpy(g_savedFb, g_fb, FB_BYTES);
+      g_hasSavedFb = true;
+      g_uiMode = UI_LIVE;
+
       drawFramebufferToDisplay(g_fb, BADGE_W, BADGE_H);
     } else {
+      // For text-only updates, we display it but we do NOT save a framebuffer
+      // (we could render to a 1bpp buffer later if you want).
+      g_uiMode = UI_LIVE;
       drawCenteredText(g_latestText, 2);
     }
+
     Serial.println("[update] Display update done.");
     goToDeepSleep();
   }
 
   // Timeout -> sleep
-  if (millis() - startMs >= AWAKE_WINDOW_MS) {
-    Serial.println("[timeout] No update received in 5 minutes.");
+  if (millis() - lastActivityMs >= INTERACT_WINDOW_MS) {
+    Serial.println("[timeout] No interaction in 5 minutes.");
     stopBLE();
     goToDeepSleep();
   }
