@@ -66,6 +66,5 @@ to the badge.  The badge SHOULD display exactly what you have in the app preview
 then go to sleep.  It seems to have about an 80% success rate.  If the display doesn't take, 
 just wake the badge up, connect, and send again.  
 
-<img width="1080" height="2201" alt="Screenshot_20260226-215928" src="https://github.com/user-attachments/assets/1677fcc2-593c-4c88-8b18-d60cc6ee3405" />
-
+<img width="360" height="733" alt="20260226-215928" src="https://github.com/user-attachments/assets/72545d6f-8b16-4e28-a95c-d5f279f7333e" />
 
