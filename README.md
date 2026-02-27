@@ -1,6 +1,7 @@
 # Badgey E-Ink Badge System
 A smart badge system using the Heltec Visionmaster E290 board and an android app
 
+![pic1](https://github.com/user-attachments/assets/0b045754-b974-4a6f-b7e1-c69d1b1d633e)  ![pic3](https://github.com/user-attachments/assets/a7edfb34-8c7b-47a8-8b3f-d3af58d29c4c)
 
 ### Disclaimer
 This is pure vibeslop.  It works on my machine(s), but I make no promises that it
@@ -49,6 +50,9 @@ middle one) will wake the board up and it will again look for data from the app 
 A quick double-press of the user button will cycle between the current display sent from the 
 app, the built-in Badgey image, and a status screen with FW version, battery state, etc.
 
+![pic2](https://github.com/user-attachments/assets/e34545de-6d53-4b94-bdc3-50b5562af793)  ![status](https://github.com/user-attachments/assets/2c3be180-cfd3-416e-8100-c8b471b0121e)
+
+
 
 
 ### The Android App
@@ -66,5 +70,8 @@ to the badge.  The badge SHOULD display exactly what you have in the app preview
 then go to sleep.  It seems to have about an 80% success rate.  If the display doesn't take, 
 just wake the badge up, connect, and send again.  
 
-<img width="360" height="733" alt="20260226-215928" src="https://github.com/user-attachments/assets/72545d6f-8b16-4e28-a95c-d5f279f7333e" />
+
+<img width="245" height="500" alt="vibecode" src="https://github.com/user-attachments/assets/38566756-78cc-4dd0-9baa-9b29955a08a3" />  ![possum](https://github.com/user-attachments/assets/beda950b-435c-409b-a3cd-a766cea3866e)
+
+
 
