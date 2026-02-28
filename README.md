@@ -64,15 +64,31 @@ window. Hit scan to look for local BLE devices. Badgy will show up as "E-Badge" 
 to bind your badge to your phone.  You should only have to do this once.  You can add/edit 
 text and image objects to create the badge display of your dreams.  Yes, the object editing 
 section is cramped and requires a lot of scrolling up and down.  Feel free to make it better 
-if you think you can.  Once you have the display configured as you like, hit the Connect 
-button to connect to the badge.  It will need to be awake for this.  Once it's connected, 
+if you think you can.  
+
+Once you have the display configured as you like, hit the Connect 
+button to connect to the badge.  The badge will need to be awake for this.  Once it's connected, 
 you can hit the send button to send your creation to the badge.  The badge SHOULD display 
 exactly what you have in the app preview window and then go to sleep.  It seems to have 
 about an 80% success rate.  If the display doesn't take, just wake the badge up, connect, and 
-send again.  
+send again.
+
+You can save the contents of the preview window to a .bmp file for later use.  You can then 
+load this as an image, and it will populate the preview pixel-for-pixel.  You can also create 
+a 128x296 1-bit .bmp file externally (or edit one of your saved screens) in the image editor of 
+your choice, and the Badgey app should be able to load it.
+![AppUI](https://github.com/user-attachments/assets/d89cf0cf-7a0d-4f59-bca2-f91c8eb4cb20)
 
 
-<img width="245" height="500" alt="vibecode" src="https://github.com/user-attachments/assets/38566756-78cc-4dd0-9baa-9b29955a08a3" />  ![possum](https://github.com/user-attachments/assets/beda950b-435c-409b-a3cd-a766cea3866e)
 
+### Known issues
+Code is a mess of vibeslop, unnecessary comments, and probably abandoned functions.  I can't be 
+bothered to clean it.
 
+Sending the display to the badge doesn't always work.  I don't know why and probably won't look 
+into it because it works MOST of the time.
+
+Text/image objects cannot be re-arrainged or added out of order.  You need to add them from top 
+to bottom.  Related: the only way to add spacing between objects is to add a blank text object 
+between them and resize as needed.
 
