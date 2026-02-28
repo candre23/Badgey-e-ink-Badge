@@ -57,14 +57,22 @@ app, the built-in Badgey image, and a status screen with FW version, battery sta
 
 ### The Android App
 Install it on your phone and hopefully it works.  I'm not an android dev and I've tested it
-on exactly one phone: my pixel 9a.  The app requires permissions for bluetooth (to talk to
-the badge) and precise location information (I have no clue why, but it doesn't work without 
-it).  When the badge is powered up and awake, hit the Bind button to bring up the binding 
+on only two phones: my pixel 9a and a samsung galaxy A32.  Both work well enough, but getting 
+UIs to work across all devices on android is WAY above my pay grade, so YMMV.
+
+The app requires permissions for bluetooth (to talk to the badge) and precise location 
+information. There is no rational reason it should need that, but it doesn't work without it 
+because google, I guess.  
+
+When the badge is powered up and awake, hit the Bind button to bring up the binding 
 window. Hit scan to look for local BLE devices. Badgy will show up as "E-Badge" - select that 
-to bind your badge to your phone.  You should only have to do this once.  You can add/edit 
-text and image objects to create the badge display of your dreams.  Yes, the object editing 
-section is cramped and requires a lot of scrolling up and down.  Feel free to make it better 
-if you think you can.  
+to bind your badge to your phone.  You should only have to do this once.  
+
+You can add/edit text and image objects to create the badge display of your dreams.  Yes, the 
+object editing section is cramped and requires a lot of scrolling up and down.  Feel free to make 
+it better if you think you can.  If you want a fancier badge than what the built in editor will 
+allow, you can always make a 128x296x1bit .bmp in the editor of your choice and add that as an image 
+without any scaling or gamma adjustments.
 
 Once you have the display configured as you like, hit the Connect 
 button to connect to the badge.  The badge will need to be awake for this.  Once it's connected, 
@@ -74,9 +82,9 @@ about an 80% success rate.  If the display doesn't take, just wake the badge up,
 send again.
 
 You can save the contents of the preview window to a .bmp file for later use.  You can then 
-load this as an image, and it will populate the preview pixel-for-pixel.  You can also create 
-a 128x296 1-bit .bmp file externally (or edit one of your saved screens) in the image editor of 
-your choice, and the Badgey app should be able to load it.   
+load this as an image, and it will populate the preview pixel-for-pixel.  This is a standard 
+windows bitmap file which you can edit externally with the software of your choice.
+
 ![AppUI](https://github.com/user-attachments/assets/d89cf0cf-7a0d-4f59-bca2-f91c8eb4cb20)
 
 
@@ -92,3 +100,5 @@ Text/image objects cannot be re-arrainged or added out of order.  You need to ad
 to bottom.  Related: the only way to add spacing between objects is to add a blank text object 
 between them and resize as needed.
 
+Preview screen scaling is perfect on the pixel 9a, but likely to be slightly (or even very) off 
+on other phones.
