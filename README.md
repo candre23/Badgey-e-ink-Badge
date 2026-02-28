@@ -76,7 +76,7 @@ send again.
 You can save the contents of the preview window to a .bmp file for later use.  You can then 
 load this as an image, and it will populate the preview pixel-for-pixel.  You can also create 
 a 128x296 1-bit .bmp file externally (or edit one of your saved screens) in the image editor of 
-your choice, and the Badgey app should be able to load it.
+your choice, and the Badgey app should be able to load it.  
 ![AppUI](https://github.com/user-attachments/assets/d89cf0cf-7a0d-4f59-bca2-f91c8eb4cb20)
 
 
