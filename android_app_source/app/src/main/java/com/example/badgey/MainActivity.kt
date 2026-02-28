@@ -100,7 +100,8 @@ sealed class Block {
     data class Image(
         val uri: Uri,
         val scale: Float = 1.0f,
-        val gamma: Float = 1.0f
+        val gamma: Float = 1.0f,
+        val nativePacked: ByteArray? = null  // if this is a native 128x296 1bpp BMP, store it here
     ) : Block()
 }
 
@@ -474,6 +475,28 @@ private fun renderBlocksToBitmap(ctx: Context, blocks: List<Block>): Bitmap {
     val canvas = Canvas(bmp)
     canvas.drawColor(Color.WHITE)
 
+    // If a native full-screen BMP is present, render it bit-for-bit as the screen.
+// This matches "saved badge screen" behavior.
+    val nativeScreen = blocks.firstOrNull { it is Block.Image && it.nativePacked != null } as? Block.Image
+    if (nativeScreen?.nativePacked != null) {
+        val bw = Bitmap.createBitmap(BADGE_W, BADGE_H, Bitmap.Config.ARGB_8888)
+        val rowBytes = (BADGE_W + 7) / 8
+        var src = 0
+        for (y in 0 until BADGE_H) {
+            for (xByte in 0 until rowBytes) {
+                val b = nativeScreen.nativePacked[src++].toInt() and 0xFF
+                for (bit in 0..7) {
+                    val x = xByte * 8 + bit
+                    if (x >= BADGE_W) break
+                    val isBlack = ((b shr (7 - bit)) and 1) == 1
+                    bw.setPixel(x, y, if (isBlack) android.graphics.Color.BLACK else android.graphics.Color.WHITE)
+                }
+            }
+        }
+        canvas.drawBitmap(bw, 0f, 0f, null)
+        return bmp
+    }
+
     var y = 6f
     val paddingX = 6f
 
@@ -618,6 +641,170 @@ private fun packed1BitToBitmap(packed: ByteArray): Bitmap {
     return bmp
 }
 
+private data class NativeBmpResult(
+    val packed: ByteArray, // row-major 1bpp packed, rowBytes = (w+7)/8
+    val w: Int,
+    val h: Int
+)
+
+private fun tryLoadNative1BitBmp(ctx: Context, uri: Uri, expectW: Int, expectH: Int): NativeBmpResult? {
+    // Supports: BMP 1bpp, BI_RGB, 2-color palette, 128x296 (or expected), bottom-up OR top-down.
+    // Returns packed bytes in top-to-bottom row order, each row is rowBytes bytes, MSB-first per byte.
+    return try {
+        ctx.contentResolver.openInputStream(uri)?.use { ins ->
+            val bytes = ins.readBytes()
+            if (bytes.size < 62) return null
+            if (bytes[0].toInt().toChar() != 'B' || bytes[1].toInt().toChar() != 'M') return null
+
+            fun u16(off: Int): Int = (bytes[off].toInt() and 0xFF) or ((bytes[off + 1].toInt() and 0xFF) shl 8)
+            fun s32(off: Int): Int =
+                (bytes[off].toInt() and 0xFF) or
+                        ((bytes[off + 1].toInt() and 0xFF) shl 8) or
+                        ((bytes[off + 2].toInt() and 0xFF) shl 16) or
+                        ((bytes[off + 3].toInt() and 0xFF) shl 24)
+
+            val pixelOffset = s32(10)
+            val dibSize = s32(14)
+            if (dibSize < 40) return null // require BITMAPINFOHEADER or larger
+
+            val w = s32(18)
+            val hRaw = s32(22)
+            val planes = u16(26)
+            val bpp = u16(28)
+            val compression = s32(30)
+            val colorsUsed = s32(46)
+
+            if (planes != 1) return null
+            if (bpp != 1) return null
+            if (compression != 0) return null // BI_RGB
+            if (w != expectW) return null
+
+            val topDown = hRaw < 0
+            val h = kotlin.math.abs(hRaw)
+            if (h != expectH) return null
+
+            // Row size in file is padded to 4 bytes
+            val rowBytes = (w + 7) / 8
+            val rowStride = ((rowBytes + 3) / 4) * 4
+            if (pixelOffset + rowStride * h > bytes.size) return null
+
+            // Palette sanity: 2 colors. Some BMPs omit colorsUsed, so accept 0 or 2.
+            if (colorsUsed != 0 && colorsUsed != 2) return null
+
+            // BMP bit convention: bit=0 is palette index 0, bit=1 is palette index 1.
+            // For our badge: 0=white, 1=black.
+            // Ensure palette[0]=white and palette[1]=black (BGRA)
+            // Palette starts immediately after DIB header for BITMAPINFOHEADER (usually at 14+40=54)
+            val paletteOff = 14 + dibSize
+            if (paletteOff + 8 > bytes.size) return null
+            val b0 = bytes[paletteOff + 0].toInt() and 0xFF
+            val g0 = bytes[paletteOff + 1].toInt() and 0xFF
+            val r0 = bytes[paletteOff + 2].toInt() and 0xFF
+            val b1 = bytes[paletteOff + 4].toInt() and 0xFF
+            val g1 = bytes[paletteOff + 5].toInt() and 0xFF
+            val r1 = bytes[paletteOff + 6].toInt() and 0xFF
+
+            val pal0IsWhite = (r0 > 200 && g0 > 200 && b0 > 200)
+            val pal1IsBlack = (r1 < 55 && g1 < 55 && b1 < 55)
+            if (!(pal0IsWhite && pal1IsBlack)) {
+                // If palette is inverted (0=black, 1=white) we could invert bits,
+                // but user asked "bit-for-bit native", so only accept the native mapping.
+                return null
+            }
+
+            val packed = ByteArray(rowBytes * h)
+            for (row in 0 until h) {
+                val srcRow = if (topDown) row else (h - 1 - row)
+                val srcOff = pixelOffset + srcRow * rowStride
+                val dstOff = row * rowBytes
+                bytes.copyInto(packed, destinationOffset = dstOff, startIndex = srcOff, endIndex = srcOff + rowBytes)
+            }
+
+            NativeBmpResult(packed = packed, w = w, h = h)
+        }
+    } catch (_: Exception) {
+        null
+    }
+}
+private fun packed1BitToBmpBytes(packed: ByteArray, w: Int, h: Int): ByteArray {
+    // 1-bit BMP:
+    // - BITMAPFILEHEADER (14)
+    // - BITMAPINFOHEADER (40)
+    // - palette (2 entries, 8 bytes)
+    // - pixel data (rows padded to 4-byte boundary)
+    //
+    // We write a TOP-DOWN bitmap by setting biHeight negative, so we do not have to flip rows.
+
+    val rowBytes = (w + 7) / 8
+    val rowStride = ((rowBytes + 3) / 4) * 4
+    val imageSize = rowStride * h
+
+    val fileHeaderSize = 14
+    val infoHeaderSize = 40
+    val paletteSize = 8
+    val pixelOffset = fileHeaderSize + infoHeaderSize + paletteSize
+    val fileSize = pixelOffset + imageSize
+
+    fun le16(v: Int) = byteArrayOf((v and 0xFF).toByte(), ((v ushr 8) and 0xFF).toByte())
+    fun le32(v: Int) = byteArrayOf(
+        (v and 0xFF).toByte(),
+        ((v ushr 8) and 0xFF).toByte(),
+        ((v ushr 16) and 0xFF).toByte(),
+        ((v ushr 24) and 0xFF).toByte()
+    )
+
+
+
+    val out = ByteArray(fileSize)
+    var p = 0
+
+    // ---- BITMAPFILEHEADER ----
+    out[p++] = 'B'.code.toByte()
+    out[p++] = 'M'.code.toByte()
+    le32(fileSize).copyInto(out, p); p += 4
+    le16(0).copyInto(out, p); p += 2 // bfReserved1
+    le16(0).copyInto(out, p); p += 2 // bfReserved2
+    le32(pixelOffset).copyInto(out, p); p += 4
+
+    // ---- BITMAPINFOHEADER ----
+    le32(infoHeaderSize).copyInto(out, p); p += 4
+    le32(w).copyInto(out, p); p += 4
+    le32(-h).copyInto(out, p); p += 4   // negative => top-down
+    le16(1).copyInto(out, p); p += 2    // planes
+    le16(1).copyInto(out, p); p += 2    // bitcount = 1
+    le32(0).copyInto(out, p); p += 4    // BI_RGB (no compression)
+    le32(imageSize).copyInto(out, p); p += 4
+    le32(2835).copyInto(out, p); p += 4 // 72 DPI ≈ 2835 ppm (x)
+    le32(2835).copyInto(out, p); p += 4 // (y)
+    le32(2).copyInto(out, p); p += 4    // colors used
+    le32(0).copyInto(out, p); p += 4    // important colors
+
+    // ---- Palette (BGRA) ----
+    // Your packed buffer is "0 = white, 1 = black" (matches preview & badge).
+    // BMP palette index 0 => bit 0, palette index 1 => bit 1.
+    // index0 = white, index1 = black
+    out[p++] = 0xFF.toByte(); out[p++] = 0xFF.toByte(); out[p++] = 0xFF.toByte(); out[p++] = 0x00.toByte() // white
+    out[p++] = 0x00.toByte(); out[p++] = 0x00.toByte(); out[p++] = 0x00.toByte(); out[p++] = 0x00.toByte() // black
+
+    // ---- Pixel data ----
+    // packed is row-major, rowBytes per row. BMP needs rowStride with padding.
+    // Since we use top-down height, we write rows in natural order (top-to-bottom).
+    val pad = rowStride - rowBytes
+    var src = 0
+    for (y in 0 until h) {
+        // copy row bytes
+        packed.copyInto(out, destinationOffset = p, startIndex = src, endIndex = src + rowBytes)
+        p += rowBytes
+        src += rowBytes
+
+        // padding
+        for (i in 0 until pad) out[p++] = 0x00
+    }
+
+    return out
+}
+
+
 // ---------- UI ----------
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -734,16 +921,68 @@ private fun App() {
     }
 
     val pickImage = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
-        if (uri != null) editorBlocks.add(Block.Image(uri = uri, scale = 1.0f, gamma = 1.0f))
-        // No need to call rebuildPreview() here; LaunchedEffect(editorBlocks.size) will trigger it.
+        if (uri != null) {
+            val native = tryLoadNative1BitBmp(ctx, uri, BADGE_W, BADGE_H)
+
+            if (native != null) {
+                // Store bit-for-bit packed data. No dithering or scaling.
+                editorBlocks.add(
+                    Block.Image(
+                        uri = uri,
+                        scale = 1.0f,
+                        gamma = 1.0f,
+                        nativePacked = native.packed
+                    )
+                )
+            } else {
+                // Normal path: decode + scale + gamma + dither during render
+                editorBlocks.add(
+                    Block.Image(
+                        uri = uri,
+                        scale = 1.0f,
+                        gamma = 1.0f,
+                        nativePacked = null
+                    )
+                )
+            }
+
+        }
     }
 
     // ---- Preview: show true 1-bit output, scaled with integer pixels ----
     var previewPacked by remember { mutableStateOf<ByteArray?>(null) }
     var previewBmp1Bit by remember { mutableStateOf<Bitmap?>(null) }
+    val saveBmp = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.CreateDocument("image/bmp")
+    ) { uri ->
+        if (uri != null) {
+            val packed = previewPacked
+            if (packed == null) {
+                // nothing to save
+                return@rememberLauncherForActivityResult
+            }
 
+            val bytes = packed1BitToBmpBytes(packed, BADGE_W, BADGE_H)
+            ctx.contentResolver.openOutputStream(uri)?.use { os ->
+                os.write(bytes)
+                os.flush()
+            }
+        }
+    }
 
     fun rebuildPreview() {
+        // Native full-screen BMP fast path: if any Image block has nativePacked,
+        // use it bit-for-bit (no render, no dither).
+        val nativeScreen = editorBlocks
+            .firstOrNull { it is Block.Image && it.nativePacked != null } as? Block.Image
+
+        if (nativeScreen?.nativePacked != null) {
+            previewPacked = nativeScreen.nativePacked
+            previewBmp1Bit = packed1BitToBitmap(nativeScreen.nativePacked)
+            return
+        }
+
+        // Normal path: render -> dither -> preview
         val src = renderBlocksToBitmap(ctx, editorBlocks.toList())
         val packed = ditherTo1BitPacked(src, 1.0f)
         previewPacked = packed
@@ -924,7 +1163,7 @@ private fun App() {
                 .padding(10.dp)
         ) {
             val totalH = maxHeight
-            val topH = totalH * 0.66f
+            val topH = totalH * 0.62f
             val bottomH = totalH - topH
 
             Column(Modifier.fillMaxSize()) {
@@ -941,13 +1180,17 @@ private fun App() {
                         modifier = Modifier
                             .width(150.dp)
                             .fillMaxHeight(),
-                        verticalArrangement = Arrangement.spacedBy(10.dp)
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
                         Text("Badgey", style = MaterialTheme.typography.titleMedium)
-
                         Text("BLE: ${ble.status}", style = MaterialTheme.typography.bodySmall)
-                        Text("Bound:", style = MaterialTheme.typography.bodySmall)
-                        Text(boundAddr ?: "(none)", style = MaterialTheme.typography.bodySmall)
+                        // Text("Bound:", style = MaterialTheme.typography.bodySmall)
+                        Text(
+                            boundAddr ?: "(none)",
+                            fontSize = 10.sp,
+                            maxLines = 1,
+                            softWrap = false
+                        )
 
                         Button(
                             onClick = { showBindDialog = true },
@@ -976,12 +1219,14 @@ private fun App() {
                         ) { Text("Add Image") }
 
                         OutlinedButton(
-                            onClick = { rebuildPreview() },
+                            onClick = {
+                                // Suggest a filename in the save dialog
+                                saveBmp.launch("badgey_screen.bmp")
+                            },
+                            enabled = previewPacked != null,
                             modifier = Modifier.fillMaxWidth()
-                        ) { Text("Refresh") }
-
+                        ) { Text("Save BMP") }
                         Spacer(Modifier.weight(1f))
-                        Text("FB char: ${if (ble.isReady()) "OK" else "NULL"}")
 
                         val canSend = ble.isReady() && previewPacked != null
                         Button(
@@ -1003,10 +1248,9 @@ private fun App() {
                         Column(
                             modifier = Modifier
                                 .fillMaxSize()
-                                .padding(10.dp),
+                                .padding(8.dp),
                             verticalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
-                            Text("Preview (1-bit, pixel scaled)", style = MaterialTheme.typography.bodyMedium)
 
                             BoxWithConstraints(
                                 modifier = Modifier
