@@ -59,16 +59,17 @@ app, the built-in Badgey image, and a status screen with FW version, battery sta
 Install it on your phone and hopefully it works.  I'm not an android dev and I've tested it
 on exactly one phone: my pixel 9a.  The app requires permissions for bluetooth (to talk to
 the badge) and precise location information (I have no clue why, but it doesn't work without 
-it).  When the badge is powered up and awake, hit the Scan button to look for local BLE 
-devices. Badgy will show up as "E-Badge" - select that to bind your badge to your phone.  You 
-should only have to do this once.  You can add/edit text and image objects to create the badge 
-display of your dreams.  Yes, the object editing section is cramped and requires a lot of 
-scrolling up and down.  Feel free to make it better if you think you can.  Once you have the 
-display configured as you like, hit the Connect button to connect to the badge.  It will need 
-to be awake for this.  Once it's connected, you can hit the send button to send your creation 
-to the badge.  The badge SHOULD display exactly what you have in the app preview window and 
-then go to sleep.  It seems to have about an 80% success rate.  If the display doesn't take, 
-just wake the badge up, connect, and send again.  
+it).  When the badge is powered up and awake, hit the Bind button to bring up the binding 
+window. Hit scan to look for local BLE devices. Badgy will show up as "E-Badge" - select that 
+to bind your badge to your phone.  You should only have to do this once.  You can add/edit 
+text and image objects to create the badge display of your dreams.  Yes, the object editing 
+section is cramped and requires a lot of scrolling up and down.  Feel free to make it better 
+if you think you can.  Once you have the display configured as you like, hit the Connect 
+button to connect to the badge.  It will need to be awake for this.  Once it's connected, 
+you can hit the send button to send your creation to the badge.  The badge SHOULD display 
+exactly what you have in the app preview window and then go to sleep.  It seems to have 
+about an 80% success rate.  If the display doesn't take, just wake the badge up, connect, and 
+send again.  
 
 
 <img width="245" height="500" alt="vibecode" src="https://github.com/user-attachments/assets/38566756-78cc-4dd0-9baa-9b29955a08a3" />  ![possum](https://github.com/user-attachments/assets/beda950b-435c-409b-a3cd-a766cea3866e)
