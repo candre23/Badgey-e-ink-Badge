@@ -5,7 +5,7 @@ A smart badge system using the Heltec Visionmaster E290 board and an android app
 
 ### Disclaimer
 This is pure vibeslop.  It works on my machine(s), but I make no promises that it
-will work for you.  I am unable to provide tech support.  I cannot guarentee that 
+will work for you.  I am unable to provide tech support.  I cannot guarantee that 
 this software won't brick your phone, cause your genitals to implode, suddenly 
 become sentient and initiate the inevitable machine uprising, or cause any 
 conceivable or inconceivable undesired outcome.  Use at your own risk.  
@@ -44,7 +44,7 @@ https://github.com/todd-herbert/heltec-eink-modules
 https://h2zero.github.io/NimBLE-Arduino/index.html  
 When you power up the badge, it will write the happy Badgey image to the display and wait for 
 a new image to be sent from the app.  When the badge is awake and waiting for the app, the 
-bright white LED will flash once per second.  After 5min without activity (or once it recieves 
+bright white LED will flash once per second.  After 5min without activity (or once it receives 
 an image) it will go into deep sleep to conserve battery life.  Pressing the user button (the 
 middle one) will wake the board up and it will again look for data from the app over bluetooth. 
 A quick double-press of the user button will cycle between the current display sent from the 
@@ -96,9 +96,11 @@ bothered to clean it.
 Sending the display to the badge doesn't always work.  I don't know why and probably won't look 
 into it because it works MOST of the time.
 
-Text/image objects cannot be re-arrainged or added out of order.  You need to add them from top 
+Text/image objects cannot be re-arranged or added out of order.  You need to add them from top 
 to bottom.  Related: the only way to add spacing between objects is to add a blank text object 
 between them and resize as needed.
 
 Preview screen scaling is perfect on the pixel 9a, but likely to be slightly (or even very) off 
 on other phones.
+
+
